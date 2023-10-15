@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net/textproto"
 	"regexp"
 	"strconv"
@@ -56,8 +55,6 @@ func (c *Conn) WriteText(method string, headers *textproto.MIMEHeader, body []by
 	payload := make([]byte, len(header)+len(body))
 	copy(payload, header)
 	copy(payload[len(header):], body)
-
-	log.Printf("write: %s", payload)
 
 	if _, err := c.underlying.Write(payload); err != nil {
 		return fmt.Errorf("write: %w", err)
@@ -151,7 +148,6 @@ func (c *Conn) Read() (*Packet, error) {
 			Body:       body,
 		}
 
-		log.Printf("read: %#v", p)
 		return p, nil
 	}
 }
