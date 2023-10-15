@@ -98,6 +98,6 @@ function encodeSample(sample) {
 }
 
 function addLog(text) {
-  document.getElementById('log').value += text
+  document.getElementById('log').value += '\n' + text
   document.getElementById('log').scrollTop = 9999999999
 }
