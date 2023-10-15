@@ -20,11 +20,12 @@ type Conn struct {
 }
 
 type Packet struct {
-	IsBinary   bool
-	Status     string
-	StatusCode int
-	Headers    *textproto.MIMEHeader
-	Body       []byte
+	IsInterleaved bool
+	Status        string
+	StatusCode    int
+	Headers       *textproto.MIMEHeader
+	Channel       int
+	Body          []byte
 }
 
 func (c *Conn) WriteMultiTrans(headers *textproto.MIMEHeader, body []byte) error {
@@ -88,8 +89,13 @@ func (c *Conn) Read() (*Packet, error) {
 
 	if b[0] == '$' {
 		// binary
-		if _, err = c.reader.R.Discard(2); err != nil {
+		if _, err = c.reader.R.Discard(1); err != nil {
 			return nil, fmt.Errorf("read rtsp header: %w", err)
+		}
+
+		channel, err := c.reader.R.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read rtsp channel: %w", err)
 		}
 
 		var rtspInterleavedFrameLength uint16
@@ -103,9 +109,10 @@ func (c *Conn) Read() (*Packet, error) {
 		}
 
 		p := &Packet{
-			IsBinary: true,
-			Headers:  nil,
-			Body:     rtspInterleavedFrame,
+			IsInterleaved: true,
+			Headers:       nil,
+			Body:          rtspInterleavedFrame,
+			Channel:       int(channel),
 		}
 
 		return p, nil
@@ -141,11 +148,11 @@ func (c *Conn) Read() (*Packet, error) {
 		}
 
 		p := &Packet{
-			IsBinary:   false,
-			Status:     status,
-			StatusCode: statusCode,
-			Headers:    &headers,
-			Body:       body,
+			IsInterleaved: false,
+			Status:        status,
+			StatusCode:    statusCode,
+			Headers:       &headers,
+			Body:          body,
 		}
 
 		return p, nil
