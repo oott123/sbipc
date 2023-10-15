@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>State-of-art BYOD IPC</title>
+  </head>
+  <body>
+    <form id="talkform" style="font-family: monospace;">
+      <div>
+        <label>Address : <input type="text" name="address" placeholder="ipc:554" /></label>
+      </div>
+      <div>
+        <label>Username: <input type="text" name="username" /></label>
+      </div>
+      <div>
+        <label>Password: <input type="password" name="password" /></label>
+      </div>
+      <div>
+        <button type="submit">Talk</button>
+        <button type="button" id="stop-btn">Stop</button>
+      </div>
+    </form>
+    <div>
+      <textarea id="log" rows="20" cols="45"></textarea>
+    </div>
+    <script src="talk.js"></script>
+  </body>
+</html>

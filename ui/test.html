@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>test</title>
+  </head>
+  <body>
+    <button id="start-rec">Rec</button>
+    <button id="stop-rec">Stop</button>
+  </body>
+  <script>
+    document.getElementById('start-rec').addEventListener('click', () => {
+      navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 8000, sampleSize: 16 } })
+      .then(stream => {
+        const data = []
+        const ac = new AudioContext({
+          sampleRate: 8000,
+          latencyHint: "interactive",
+        })
+        const source = ac.createMediaStreamSource(stream)
+        const dest = ac.createMediaStreamDestination()
+
+        const scriptProcessor = ac.createScriptProcessor(256, 1, 1)
+        scriptProcessor.onaudioprocess = (e) => {
+          const arr = e.inputBuffer.getChannelData(0)
+          const alaw = new Uint8Array([...arr].map(x => encodeSample(Math.round(x * 32767))))
+          data.push(alaw)
+        }
+
+        source.connect(scriptProcessor).connect(dest)
+
+        document.getElementById('stop-rec').onclick = () => {
+          stream.getTracks().forEach((track) => {
+            track.stop()
+          })
+          const blob = new Blob(data)
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'recording.dat'
+          a.click()
+        }
+      })
+      .catch(console.error)
+    })
+
+    /** @type {!Array<number>} */
+    const LOG_TABLE = [
+      1,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5, 
+      6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6, 
+      7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7, 
+      7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7 
+    ];
+
+    /**
+     * Encode a 16-bit linear PCM sample as 8-bit A-Law.
+     * @param {number} sample A 16-bit PCM sample
+     * @return {number}
+     */
+    function encodeSample(sample) {
+      /** @type {number} */
+      let compandedValue; 
+      sample = (sample == -32768) ? -32767 : sample;
+      /** @type {number} */
+      let sign = ((~sample) >> 8) & 0x80; 
+      if (!sign) {
+        sample = sample * -1; 
+      }
+      if (sample > 32635) {
+        sample = 32635; 
+      }
+      if (sample >= 256)  {
+        /** @type {number} */
+        let exponent = LOG_TABLE[(sample >> 8) & 0x7F];
+        /** @type {number} */
+        let mantissa = (sample >> (exponent + 3) ) & 0x0F; 
+        compandedValue = ((exponent << 4) | mantissa); 
+      } else {
+        compandedValue = sample >> 4; 
+      } 
+      return compandedValue ^ (sign ^ 0x55);
+    }
+  </script>
+</html>
