@@ -9,7 +9,7 @@ import (
 	"sbipc/pkg/mtsp"
 	"sync"
 
-	"github.com/pion/rtp"
+	"github.com/pion/rtp/v2"
 )
 
 type Conn struct {
@@ -142,7 +142,7 @@ type PreviewParams struct {
 	} `json:"av_config"`
 }
 
-type previewResponse struct {
+type previewResult struct {
 	Type   string         `json:"type"`
 	Seq    int            `json:"seq"`
 	Params *PreviewParams `json:"params"`
@@ -167,7 +167,7 @@ func (c *Conn) StartPreview() (*PreviewParams, error) {
 
 	c.seq++
 
-	var resp talkResult
+	var resp previewResult
 	if err = json.Unmarshal(r.Body, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
