@@ -121,6 +121,64 @@ func (c *Conn) StopTalk(sessionId string) error {
 	return nil
 }
 
+type PreviewParams struct {
+	ErrorCode   int    `json:"error_code"`
+	SessionID   string `json:"session_id"`
+	Interleaved []struct {
+		Channel       int    `json:"channel"`
+		InterleavedID string `json:"interleaved_id"`
+	} `json:"interleaved"`
+	AvConfig []struct {
+		Channel           int    `json:"channel"`
+		VideoCodec        string `json:"video_codec"`
+		AudioCodec        string `json:"audio_codec"`
+		AudioSamplingRate string `json:"audio_sampling_rate"`
+		AudioBitwidth     string `json:"audio_bitwidth"`
+		AudioChannels     string `json:"audio_channels"`
+		ExtraData         struct {
+			VideoRtpmap string `json:"video_rtpmap"`
+			VideoFmtp   string `json:"video_fmtp"`
+		} `json:"extra_data"`
+	} `json:"av_config"`
+}
+
+type previewResponse struct {
+	Type   string         `json:"type"`
+	Seq    int            `json:"seq"`
+	Params *PreviewParams `json:"params"`
+}
+
+func (c *Conn) StartPreview() (*PreviewParams, error) {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
+
+	headers := textproto.MIMEHeader{}
+	headers.Add("Content-Type", "application/json")
+
+	c.conn.WriteMultiTrans(&headers, []byte(fmt.Sprintf(`{"type":"request","seq":%d,"params":{"method":"get","preview":{"channels":[0],"privary_auth":[0],"resolutions":["HD"]}}}`, c.seq)))
+
+	r, err := c.conn.Read()
+	if err != nil {
+		return nil, fmt.Errorf("conn write: %w", err)
+	}
+	if r.StatusCode != 200 {
+		return nil, fmt.Errorf("status %d: %s", r.StatusCode, r.Status)
+	}
+
+	c.seq++
+
+	var resp talkResult
+	if err = json.Unmarshal(r.Body, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal: %w", err)
+	}
+
+	return nil, nil
+}
+
+func (c *Conn) Read() (*mtsp.Packet, error) {
+	return c.conn.Read()
+}
+
 func (c *Conn) Close() {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
