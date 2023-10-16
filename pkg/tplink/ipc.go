@@ -172,7 +172,7 @@ func (c *Conn) StartPreview() (*PreviewParams, error) {
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
 
-	return nil, nil
+	return resp.Params, nil
 }
 
 func (c *Conn) Read() (*mtsp.Packet, error) {
