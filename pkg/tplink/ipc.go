@@ -121,6 +121,10 @@ func (c *Conn) StopTalk(sessionId string) error {
 	return nil
 }
 
+func (c *Conn) StopPreview(sessionId string) error {
+	return c.StopTalk(sessionId)
+}
+
 type PreviewParams struct {
 	ErrorCode   int    `json:"error_code"`
 	SessionID   string `json:"session_id"`

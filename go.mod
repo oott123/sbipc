@@ -7,6 +7,7 @@ require github.com/olahol/melody v1.1.4
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.3.1 // indirect
+	github.com/hymkor/go-lazy v0.4.0 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
 	github.com/pion/ice/v3 v3.0.1 // indirect
