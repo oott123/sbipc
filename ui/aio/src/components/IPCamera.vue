@@ -15,8 +15,9 @@ const password = useRememberRef('sbipcPassword', '')
 const videoEl = ref<HTMLVideoElement>()
 const videoStream = ref<MediaStream>()
 const audioStream = ref<MediaStream>()
+const talkChannel = ref<RTCDataChannel>()
 
-const connect = () => {
+const connect = async () => {
   console.log('start connect')
   videoStream.value = undefined
   audioStream.value = undefined
@@ -58,12 +59,6 @@ const connect = () => {
   const pc = new RTCPeerConnection()
   peerConnection.value = pc
 
-  pc.addTransceiver('video', { direction: 'recvonly' })
-  pc.addTransceiver('audio', { direction: 'recvonly' })
-  if (enableTalk.value) {
-    pc.addTransceiver('audio', { direction: 'sendonly' })
-  }
-
   pc.addEventListener('icecandidate', (e) => {
     if (e.candidate) {
       ws.value?.send(JSON.stringify({ candidate: e.candidate }))
@@ -75,7 +70,6 @@ const connect = () => {
   })
 
   pc.addEventListener('track', (e) => {
-    console.log('on track', e.track.kind)
     if (e.track.kind === 'video') {
       videoStream.value = e.streams[0]
     } else if (e.track.kind === 'audio') {
@@ -91,6 +85,36 @@ const connect = () => {
       videoEl.value!.srcObject = videoStream.value
     }
   })
+
+  pc.addEventListener('datachannel', (e) => {
+    console.log('on channel', e.channel.label)
+    if (e.channel.label === 'talk') {
+      talkChannel.value = e.channel
+    }
+  })
+}
+
+const record = async () => {
+  navigator.mediaDevices
+    .getUserMedia({ audio: { sampleRate: 8000, sampleSize: 16 } })
+    .then((stream) => {
+      const ac = new AudioContext({
+        sampleRate: 8000,
+        latencyHint: 'interactive',
+      })
+      const source = ac.createMediaStreamSource(stream)
+      const dest = ac.createMediaStreamDestination()
+
+      const scriptProcessor = ac.createScriptProcessor(256, 1, 1)
+      scriptProcessor.onaudioprocess = (e) => {
+        const arr = e.inputBuffer.getChannelData(0)
+        const alaw = new Uint8Array([...arr].map((x) => encodeSample(Math.round(x * 32767))))
+        talkChannel.value?.send(alaw)
+      }
+
+      source.connect(scriptProcessor).connect(dest)
+    })
+    .catch(console.error)
 }
 
 onUnmounted(() => {
@@ -99,6 +123,43 @@ onUnmounted(() => {
     ws.value?.close(4500, 'exit')
   }
 })
+
+/** @type {!Array<number>} */
+const LOG_TABLE = [
+  1, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6,
+  6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+  7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+  7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+]
+
+/**
+ * Encode a 16-bit linear PCM sample as 8-bit A-Law.
+ * @param {number} sample A 16-bit PCM sample
+ * @return {number}
+ */
+function encodeSample(sample: any) {
+  /** @type {number} */
+  let compandedValue
+  sample = sample == -32768 ? -32767 : sample
+  /** @type {number} */
+  let sign = (~sample >> 8) & 0x80
+  if (!sign) {
+    sample = sample * -1
+  }
+  if (sample > 32635) {
+    sample = 32635
+  }
+  if (sample >= 256) {
+    /** @type {number} */
+    let exponent = LOG_TABLE[(sample >> 8) & 0x7f]
+    /** @type {number} */
+    let mantissa = (sample >> (exponent + 3)) & 0x0f
+    compandedValue = (exponent << 4) | mantissa
+  } else {
+    compandedValue = sample >> 4
+  }
+  return compandedValue ^ (sign ^ 0x55)
+}
 </script>
 
 <template>
@@ -108,12 +169,14 @@ onUnmounted(() => {
       <input v-model="address" type="text" placeholder="ipc address" />
       <input v-model="username" type="text" placeholder="ipc username" />
       <input v-model="password" type="password" placeholder="ipc password" />
+      <label><input v-model="enableTalk" type="checkbox" /> enable talk</label>
     </div>
     <div>
       <button @click.prevent="connect">connect</button>
+      <button @click.prevent="record">record</button>
     </div>
     <div>
-      <video ref="videoEl" muted autoplay></video>
+      <video ref="videoEl" muted autoplay width="640" height="360"></video>
     </div>
   </div>
 </template>

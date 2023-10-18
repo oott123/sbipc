@@ -20,7 +20,7 @@ type Session struct {
 	enableTalk       bool
 	audioTrack       *webrtc.TrackLocalStaticRTP
 	videoTrack       *webrtc.TrackLocalStaticRTP
-	talkReceiver     *webrtc.RTPTransceiver
+	talkChannel      *webrtc.DataChannel
 	processLock      *sync.Mutex
 }
 
@@ -131,34 +131,37 @@ func (s *Session) open(relayData *RelayData) error {
 	}
 	s.peerConnection = peerConnection
 
-	videoTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "preview")
+	videoTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "preview-video")
 	if err != nil {
 		return fmt.Errorf("failed to create video track: %w", err)
 	}
 	s.videoTrack = videoTrack
 
-	audioTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMA}, "audio", "preview")
+	audioTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMA}, "audio", "preview-audio")
 	if err != nil {
 		return fmt.Errorf("failed to create audio track: %w", err)
 	}
 	s.audioTrack = audioTrack
 
-	_, err = peerConnection.AddTrack(videoTrack)
+	_, err = peerConnection.AddTransceiverFromTrack(videoTrack, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 	if err != nil {
 		return fmt.Errorf("failed to add video track: %w", err)
 	}
 
-	_, err = peerConnection.AddTrack(audioTrack)
+	_, err = peerConnection.AddTransceiverFromTrack(audioTrack, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 	if err != nil {
 		return fmt.Errorf("failed to add audio track: %w", err)
 	}
 
 	if s.enableTalk {
-		talkReceiver, err := peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio)
+		mr := (uint16)(16)
+		s.talkChannel, err = peerConnection.CreateDataChannel("talk", &webrtc.DataChannelInit{
+			Ordered:        wrapBool(true),
+			MaxRetransmits: &mr,
+		})
 		if err != nil {
-			return fmt.Errorf("failed to add transceiver: %w", err)
+			return fmt.Errorf("failed to add talk receiver: %w", err)
 		}
-		s.talkReceiver = talkReceiver
 	}
 
 	peerConnection.OnICECandidate(func(candidate *webrtc.ICECandidate) {
@@ -220,17 +223,26 @@ func (s *Session) open(relayData *RelayData) error {
 			}()
 
 			if s.enableTalk {
-				// go func() {
-				// 	_, err = s.tpConnTalk.StartTalk()
-				// 	if err != nil {
-				// 		log.Printf("failed to start talk: %s", err)
-				// 		return
-				// 	}
+				go func() {
+					ses, err := s.tpConnTalk.StartTalk()
+					log.Printf("start talking")
+					s.tpTalkSession = ses
 
-				// 	s.talkReceiver.Receiver().Read()
-				// }()
+					if err != nil {
+						log.Printf("failed to start talk: %s", err)
+						return
+					}
+
+					s.talkChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+						s.tpConnTalk.WriteTalk(msg.Data)
+					})
+				}()
 			}
 		}
+	})
+
+	peerConnection.OnTrack(func(tr *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
+		log.Printf("got track %s, it's a %s track with mime %s, ignore it.", tr.ID(), tr.Kind(), tr.Codec().MimeType)
 	})
 
 	sd, err := peerConnection.CreateOffer(nil)
@@ -259,7 +271,7 @@ func (s *Session) onClose() {
 		s.tpConnTalk.Close()
 	}
 	if s.tpConnPreview != nil {
-		s.tpConnPreview.StopTalk(s.tpPreviewSession)
+		s.tpConnPreview.StopPreview(s.tpPreviewSession)
 		s.tpConnPreview.Close()
 	}
 }
