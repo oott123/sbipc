@@ -4,6 +4,7 @@ import { useRememberRef } from '../setups/useRememberRef'
 
 const ws = ref<WebSocket>()
 const wsConnected = ref(false)
+const talking = ref(false)
 const peerConnection = ref<RTCPeerConnection>()
 
 const wsUrl = useRememberRef('sbipcWsUrl', '')
@@ -92,29 +93,35 @@ const connect = async () => {
       talkChannel.value = e.channel
     }
   })
+
+  if (enableTalk) {
+    navigator.mediaDevices
+      .getUserMedia({ audio: { sampleRate: 8000, sampleSize: 16 } })
+      .then((stream) => {
+        const ac = new AudioContext({
+          sampleRate: 8000,
+          latencyHint: 'interactive',
+        })
+        const source = ac.createMediaStreamSource(stream)
+        const dest = ac.createMediaStreamDestination()
+
+        const scriptProcessor = ac.createScriptProcessor(256, 1, 1)
+        scriptProcessor.onaudioprocess = (e) => {
+          if (talking.value) {
+            const arr = e.inputBuffer.getChannelData(0)
+            const alaw = new Uint8Array([...arr].map((x) => encodeSample(Math.round(x * 32767))))
+            talkChannel.value?.send(alaw)
+          }
+        }
+
+        source.connect(scriptProcessor).connect(dest)
+      })
+      .catch(console.error)
+  }
 }
 
-const record = async () => {
-  navigator.mediaDevices
-    .getUserMedia({ audio: { sampleRate: 8000, sampleSize: 16 } })
-    .then((stream) => {
-      const ac = new AudioContext({
-        sampleRate: 8000,
-        latencyHint: 'interactive',
-      })
-      const source = ac.createMediaStreamSource(stream)
-      const dest = ac.createMediaStreamDestination()
-
-      const scriptProcessor = ac.createScriptProcessor(256, 1, 1)
-      scriptProcessor.onaudioprocess = (e) => {
-        const arr = e.inputBuffer.getChannelData(0)
-        const alaw = new Uint8Array([...arr].map((x) => encodeSample(Math.round(x * 32767))))
-        talkChannel.value?.send(alaw)
-      }
-
-      source.connect(scriptProcessor).connect(dest)
-    })
-    .catch(console.error)
+const talkToggle = () => {
+  talking.value = !talking.value
 }
 
 onUnmounted(() => {
@@ -172,8 +179,8 @@ function encodeSample(sample: any) {
       <label><input v-model="enableTalk" type="checkbox" /> enable talk</label>
     </div>
     <div>
-      <button @click.prevent="connect">connect</button>
-      <button @click.prevent="record">record</button>
+      <button v-if="!wsConnected" @click.prevent="connect">connect</button>
+      <button v-if="wsConnected && enableTalk" @click.prevent="talkToggle">{{ talking ? 'stop' : 'talk' }}</button>
     </div>
     <div>
       <video ref="videoEl" muted autoplay width="640" height="360"></video>
