@@ -14,8 +14,9 @@ func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	s.melody.HandleRequestWithKeys(w, r, map[string]interface{}{})
 }
 
-func New() *Server {
+func NewServer() *Server {
 	m := melody.New()
+	m.Config.MaxMessageSize = 1024 * 1024
 
 	s := &Server{
 		melody: m,
@@ -29,6 +30,10 @@ func New() *Server {
 	})
 
 	m.HandleMessage(func(s *melody.Session, msg []byte) {
+		getRelay(s).internalHandleData(msg)
+	})
+
+	m.HandleMessageBinary(func(s *melody.Session, msg []byte) {
 		getRelay(s).internalHandleData(msg)
 	})
 
@@ -57,7 +62,7 @@ func (m *MelodyRelay) Close() {
 	if m.closeCallback != nil {
 		m.closeCallback()
 	}
-	m.melodySession.Close()
+	m.melodySession.CloseWithMsg(melody.FormatCloseMessage(4001, "relay closed"))
 }
 
 func (m *MelodyRelay) Send(data string) error {

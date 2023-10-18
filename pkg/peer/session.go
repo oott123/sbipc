@@ -3,6 +3,7 @@ package peer
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sbipc/pkg/tplink"
 	"sync"
 
@@ -27,6 +28,12 @@ func (s *Session) onRelayData(data string) {
 	s.processLock.Lock()
 	defer s.processLock.Unlock()
 
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("recovered from: %s", r)
+		}
+	}()
+
 	var relayData RelayData
 	if err := json.Unmarshal([]byte(data), &relayData); err != nil {
 		errRelayData := RelayData{
@@ -40,6 +47,7 @@ func (s *Session) onRelayData(data string) {
 	}
 
 	if err := s.processRelayData(&relayData); err != nil {
+		log.Printf("relay data error: %s", err)
 		errRelayData := RelayData{
 			UserData: relayData.UserData,
 			Success:  wrapBool(false),
@@ -72,12 +80,14 @@ func (s *Session) processRelayData(relayData *RelayData) error {
 		if err := s.peerConnection.SetRemoteDescription(*relayData.SessionDescription); err != nil {
 			return fmt.Errorf("set remote description: %w", err)
 		}
+		return nil
 	}
 
 	if relayData.Candidate != nil {
 		if err := s.peerConnection.AddICECandidate(*relayData.Candidate); err != nil {
 			return fmt.Errorf("add ice candidate: %w", err)
 		}
+		return nil
 	}
 
 	return fmt.Errorf("invalid request")
@@ -152,17 +162,74 @@ func (s *Session) open(relayData *RelayData) error {
 	}
 
 	peerConnection.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		candidateInit := candidate.ToJSON()
-		relayData := &RelayData{
-			Candidate: &candidateInit,
+		if candidate != nil {
+			candidateInit := candidate.ToJSON()
+			relayData := &RelayData{
+				Candidate: &candidateInit,
+			}
+			text, _ := json.Marshal(relayData)
+			s.relay.Send(string(text))
 		}
-		text, _ := json.Marshal(relayData)
-		s.relay.Send(string(text))
 	})
 
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		if connectionState == webrtc.ICEConnectionStateFailed {
+			log.Printf("ice state failed")
 			s.relay.Close()
+		}
+	})
+
+	peerConnection.OnConnectionStateChange(func(connectionState webrtc.PeerConnectionState) {
+		if connectionState == webrtc.PeerConnectionStateFailed {
+			log.Printf("peer connection state failed")
+			s.relay.Close()
+		} else if connectionState == webrtc.PeerConnectionStateConnected {
+			log.Printf("start streaming")
+			go func() {
+				_, err = s.tpConnPreview.StartPreview()
+				if err != nil {
+					log.Printf("failed to start preview: %s", err)
+					return
+				}
+
+				for {
+					p, err := s.tpConnPreview.Read()
+					if err != nil {
+						log.Printf("read error: %s", err)
+						return
+					}
+
+					if p.IsInterleaved {
+						if p.Channel == 0 {
+							_, err := videoTrack.Write(p.Body)
+							if err != nil {
+								log.Printf("write error: %s", err)
+								return
+							}
+						}
+
+						if p.Channel == 1 {
+							_, err := audioTrack.Write(p.Body)
+							if err != nil {
+								log.Printf("write error: %s", err)
+								return
+							}
+						}
+					}
+				}
+			}()
+
+			if s.enableTalk {
+				// go func() {
+				// 	_, err = s.tpConnTalk.StartTalk()
+				// 	if err != nil {
+				// 		log.Printf("failed to start talk: %s", err)
+				// 		return
+				// 	}
+
+				// 	s.talkReceiver.Receiver().Read()
+				// }()
+			}
 		}
 	})
 
